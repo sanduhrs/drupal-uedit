@@ -1,0 +1,158 @@
+<?php
+// $Id$
+
+/**
+ * @file
+ * UEdit
+ *
+ * @author
+ * Stefan Auditor <stefan.auditor@erdfisch.de>
+ */
+
+/**
+ * Implement hook_menu().
+ */
+function uedit_menu($may_cache) {
+  global $user;
+  if (!$may_cache) {
+    if (arg(0) == 'user' && is_numeric(arg(1))) {
+
+      global $user;
+      if (($user->uid != arg(1))) {
+
+        $account = user_load(array('uid' => arg(1)));
+        if ($account->uid && ($account->uid != 1)) {
+          $items[] = array(
+            'path' => 'user/'. arg(1) .'/uedit',
+            'callback' => 'drupal_get_form',
+            'callback arguments' => array('uedit_edit'),
+            'title' => t('Edit account'),
+            'description' => t("Edit this user's account."),
+            'type' => MENU_LOCAL_TASK,
+            'access' => uedit_access($account),
+          );
+        }
+      }
+
+    }
+  }
+  return $items;
+}
+
+/**
+ * Implement hook_perm().
+ */
+function uedit_perm() {
+  $perms = array('administer uedit', 'edit user account');
+  if (module_exists('og')) {
+    $perms = array_merge($perms, array('edit user account og administrator', 'edit user account og manager'));
+  }
+  return $perms;
+}
+
+/**
+ * Check access
+ */
+function uedit_access($account) {
+  global $user;
+  if ($user->uid == 1) {
+    // Always return TRUE for UID == 1
+    return TRUE;
+  }
+  else if (user_access('edit user account')) {
+    // User may edit all user accounts
+    return TRUE;
+  }
+  else if (module_exists('og') && user_access('edit user account og administrator') && uedit_og_administrator($account)) {
+    // User may edit users in groups he manages
+    return TRUE;
+  }
+  else if (module_exists('og') && user_access('edit user account og manager') && uedit_og_manager($account)) {
+    // User may edit users in groups he is adminitrator of
+    return TRUE;
+  }
+  return FALSE;
+}
+
+/**
+ * Edit user object
+ */
+function uedit_edit($category = 'account') {
+  global $user;
+
+  $account = user_load(array('uid' => arg(1)));
+  if ($account === FALSE) {
+    drupal_set_message(t('The account does not exist or has already been deleted.'));
+    drupal_goto('<front>');
+  }
+
+  $edit = (array)$account;
+
+  $form = _user_forms($edit, $account, $category);
+
+  $form['_category'] = array('#type' => 'value', '#value' => $category);
+  $form['_account'] = array('#type' => 'value', '#value' => $account);
+  $form['submit'] = array('#type' => 'submit', '#value' => t('Submit'), '#weight' => 30);
+  if (user_access('administer users')) {
+    $form['delete'] = array('#type' => 'submit', '#value' => t('Delete'), '#weight' => 31);
+  }
+  $form['#attributes']['enctype'] = 'multipart/form-data';
+
+  drupal_set_title(check_plain($account->name));
+  return $form;
+}
+
+/**
+ * Save changed user object
+ */
+function uedit_edit_submit($form_id, $form_values) {
+  $account = $form_values['_account'];
+  $category = $form_values['_category'];
+  unset($form_values['_account'], $form_values['op'], $form_values['submit'], $form_values['delete'], $form_values['form_token'], $form_values['form_id'], $form_values['_category']);
+  user_module_invoke('submit', $form_values, $account, $category);
+  user_save($account, $form_values, $category);
+
+  // Delete that user's menu cache:
+  cache_clear_all($account->uid .':', 'cache_menu', TRUE);
+
+  // Clear the page cache because pages can contain usernames and/or profile information:
+  cache_clear_all();
+
+  drupal_set_message(t('The changes have been saved.'));
+  return 'user/'. $account->uid;
+}
+
+/**
+ * Check if account is member of a group the logged in user manages
+ */
+function uedit_og_manager($account) {
+  global $user;
+  $sql = "SELECT ou1.*, ou2.* FROM {og_uid} ou1
+            INNER JOIN {og_uid} ou2 ON ou1.nid = ou2.nid
+            INNER JOIN {node} n ON ou1.nid = n.nid
+            WHERE ou1.is_admin = 1
+              AND ou1.uid = %d
+              AND n.uid = %d
+              AND ou2.uid = %d";
+  $result = db_query($sql, $user->uid, $user->uid, $account->uid);
+  dsm('check manager');
+  return db_result($result) ? TRUE : FALSE;
+}
+
+/**
+ * Check if account is member of a group the logged in user administratos of
+ */
+function uedit_og_administrator($account) {
+  global $user;
+  $sql = "SELECT ou1.*, ou2.* FROM {og_uid} ou1
+            INNER JOIN {og_uid} ou2 ON ou1.nid = ou2.nid
+            INNER JOIN {node} n ON ou1.nid = n.nid
+            WHERE ou1.is_admin = 1
+              AND ou1.uid = %d
+              AND n.uid <> %d
+              AND ou2.is_admin = 0
+              AND ou2.uid = %d";
+  $result = db_query($sql, $user->uid, $user->uid, $account->uid);
+  dsm('check admin');
+  return db_result($result) ? TRUE : FALSE;
+}
