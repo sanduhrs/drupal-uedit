@@ -135,7 +135,6 @@ function uedit_og_manager($account) {
               AND n.uid = %d
               AND ou2.uid = %d";
   $result = db_query($sql, $user->uid, $user->uid, $account->uid);
-  dsm('check manager');
   return db_result($result) ? TRUE : FALSE;
 }
 
@@ -153,6 +152,5 @@ function uedit_og_administrator($account) {
               AND ou2.is_admin = 0
               AND ou2.uid = %d";
   $result = db_query($sql, $user->uid, $user->uid, $account->uid);
-  dsm('check admin');
   return db_result($result) ? TRUE : FALSE;
 }
