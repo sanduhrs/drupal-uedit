@@ -29,7 +29,7 @@ function uedit_menu($may_cache) {
             'title' => t('Edit account'),
             'description' => t("Edit this user's account."),
             'type' => MENU_LOCAL_TASK,
-            'access' => uedit_access($account),
+            'access' => uedit_check_access($account),
           );
         }
       }
@@ -65,7 +65,7 @@ function uedit_perm() {
 /**
  * Check access
  */
-function uedit_access($account) {
+function uedit_check_access($account) {
   global $user;
   if ($user->uid == 1) {
     // Always return TRUE for UID == 1
