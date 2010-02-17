@@ -43,9 +43,21 @@ function uedit_menu($may_cache) {
  * Implement hook_perm().
  */
 function uedit_perm() {
-  $perms = array('administer uedit', 'edit user account');
+  $perms = array(
+    'administer uedit',
+    'edit user account'
+  );
+
   if (module_exists('og')) {
-    $perms = array_merge($perms, array('edit user account og administrator', 'edit user account og manager'));
+    $perms[] = 'edit user account og administrator';
+    $perms[] = 'edit user account og manager';
+
+    // get group node types
+    $group_types = og_get_types('group');
+    foreach ($group_types as $type) {
+      $perms[] = 'edit user account og administrator of '. $type;
+      $perms[] = 'edit user account og manager of '. $type;
+    }
   }
   return $perms;
 }
@@ -63,13 +75,34 @@ function uedit_access($account) {
     // User may edit all user accounts
     return TRUE;
   }
-  else if (module_exists('og') && user_access('edit user account og administrator') && uedit_og_administrator($account)) {
-    // User may edit users in groups he manages
+  else if (module_exists('og') &&
+           user_access('edit user account og administrator') &&
+           uedit_og_is_administrator($account)) {
+    // User may edit users in groups he is manager of
     return TRUE;
   }
-  else if (module_exists('og') && user_access('edit user account og manager') && uedit_og_manager($account)) {
-    // User may edit users in groups he is adminitrator of
+  else if (module_exists('og') &&
+           user_access('edit user account og manager') &&
+           uedit_og_is_manager($account)) {
+    // User may edit users in groups he is administrator of
     return TRUE;
+  }
+  else if (module_exists('og')) {
+    // get group node types
+    $group_types = og_get_types('group');
+    foreach ($group_types as $type) {
+      if (user_access('edit user account og manager of '. $type) &&
+          uedit_og_type_is_manager($account, $type)) {
+        // User may edit users in groups of node type $type he is manager of
+        return TRUE;
+      }
+      else if (user_access('edit user account og administrator of '. $type) &&
+               uedit_og_type_is_administrator($account, $type)) {
+        // User may edit users in groups of node type $type
+        // he is administrator of
+        return TRUE;
+      }
+    }
   }
   return FALSE;
 }
@@ -125,7 +158,7 @@ function uedit_edit_submit($form_id, $form_values) {
 /**
  * Check if account is member of a group the logged in user manages
  */
-function uedit_og_manager($account) {
+function uedit_og_is_manager($account) {
   global $user;
   $sql = "SELECT ou1.*, ou2.* FROM {og_uid} ou1
             INNER JOIN {og_uid} ou2 ON ou1.nid = ou2.nid
@@ -139,9 +172,9 @@ function uedit_og_manager($account) {
 }
 
 /**
- * Check if account is member of a group the logged in user administratos of
+ * Check if account is member of a group the logged in user is aministrator of
  */
-function uedit_og_administrator($account) {
+function uedit_og_is_administrator($account) {
   global $user;
   $sql = "SELECT ou1.*, ou2.* FROM {og_uid} ou1
             INNER JOIN {og_uid} ou2 ON ou1.nid = ou2.nid
@@ -152,5 +185,40 @@ function uedit_og_administrator($account) {
               AND ou2.is_admin = 0
               AND ou2.uid = %d";
   $result = db_query($sql, $user->uid, $user->uid, $account->uid);
+  return db_result($result) ? TRUE : FALSE;
+}
+
+/**
+ * Check if account is member of a group of special type the logged in user manages
+ */
+function uedit_og_type_is_manager($account, $node_type) {
+  global $user;
+  $sql = "SELECT ou1.*, ou2.* FROM {og_uid} ou1
+            INNER JOIN {og_uid} ou2 ON ou1.nid = ou2.nid
+            INNER JOIN {node} n ON ou1.nid = n.nid
+            WHERE ou1.is_admin = 1
+              AND ou1.uid = %d
+              AND n.uid = %d
+              AND n.type = '%s'
+              AND ou2.uid = %d";
+  $result = db_query($sql, $user->uid, $user->uid, $node_type, $account->uid);
+  return db_result($result) ? TRUE : FALSE;
+}
+
+/**
+ * Check if account is member of a group of special type the logged in user administrator of
+ */
+function uedit_og_type_is_administrator($account, $node_type) {
+  global $user;
+  $sql = "SELECT ou1.*, ou2.* FROM {og_uid} ou1
+            INNER JOIN {og_uid} ou2 ON ou1.nid = ou2.nid
+            INNER JOIN {node} n ON ou1.nid = n.nid
+            WHERE ou1.is_admin = 1
+              AND ou1.uid = %d
+              AND n.uid <> %d
+              AND n.type = '%s'
+              AND ou2.is_admin = 0
+              AND ou2.uid = %d";
+  $result = db_query($sql, $user->uid, $user->uid, $node_type, $account->uid);
   return db_result($result) ? TRUE : FALSE;
 }
